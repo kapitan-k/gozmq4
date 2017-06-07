@@ -450,29 +450,38 @@ func (ctx *Context) SetBlocky(i bool) error {
 //. Sockets
 
 // Specifies the type of a socket, used by NewSocket()
-type Type int
+type SocketType int
 
 const (
 	// Constants for NewSocket()
 	// See: http://api.zeromq.org/4-1:zmq-socket#toc3
-	REQ    = Type(C.ZMQ_REQ)
-	REP    = Type(C.ZMQ_REP)
-	DEALER = Type(C.ZMQ_DEALER)
-	ROUTER = Type(C.ZMQ_ROUTER)
-	PUB    = Type(C.ZMQ_PUB)
-	SUB    = Type(C.ZMQ_SUB)
-	XPUB   = Type(C.ZMQ_XPUB)
-	XSUB   = Type(C.ZMQ_XSUB)
-	PUSH   = Type(C.ZMQ_PUSH)
-	PULL   = Type(C.ZMQ_PULL)
-	PAIR   = Type(C.ZMQ_PAIR)
-	STREAM = Type(C.ZMQ_STREAM)
+	REQ    = SocketType(C.ZMQ_REQ)
+	REP    = SocketType(C.ZMQ_REP)
+	DEALER = SocketType(C.ZMQ_DEALER)
+	ROUTER = SocketType(C.ZMQ_ROUTER)
+	PUB    = SocketType(C.ZMQ_PUB)
+	SUB    = SocketType(C.ZMQ_SUB)
+	XPUB   = SocketType(C.ZMQ_XPUB)
+	XSUB   = SocketType(C.ZMQ_XSUB)
+	PUSH   = SocketType(C.ZMQ_PUSH)
+	PULL   = SocketType(C.ZMQ_PULL)
+	PAIR   = SocketType(C.ZMQ_PAIR)
+	STREAM = SocketType(C.ZMQ_STREAM)
+
+	// DRAFT
+	SERVER  = SocketType(C.ZMQ_SERVER)
+	CLIENT  = SocketType(C.ZMQ_CLIENT)
+	RADIO   = SocketType(C.ZMQ_RADIO)
+	DISH    = SocketType(C.ZMQ_DISH)
+	GATHER  = SocketType(C.ZMQ_GATHER)
+	SCATTER = SocketType(C.ZMQ_SCATTER)
+	DGRAM   = SocketType(C.ZMQ_DGRAM)
 )
 
 /*
 Socket type as string.
 */
-func (t Type) String() string {
+func (t SocketType) String() string {
 	switch t {
 	case REQ:
 		return "REQ"
@@ -650,6 +659,10 @@ func (m Mechanism) String() string {
 	return "<INVALID>"
 }
 
+func CZmqMsgClose(msg *C.zmq_msg_t) {
+	C.zmq_msg_close(msg)
+}
+
 /*
 Socket functions starting with `Set` or `Get` are used for setting and
 getting socket options.
@@ -659,6 +672,7 @@ type Socket struct {
 	ctx    *Context
 	opened bool
 	err    error
+	attach interface{}
 }
 
 /*
@@ -668,7 +682,7 @@ func (soc Socket) String() string {
 	if !soc.opened {
 		return "Socket(CLOSED)"
 	}
-	t, err := soc.GetType()
+	t, err := soc.GetSocketType()
 	if err != nil {
 		return fmt.Sprintf("Socket(%v)", err)
 	}
@@ -677,6 +691,18 @@ func (soc Socket) String() string {
 		return fmt.Sprintf("Socket(%v,%q)", t, i)
 	}
 	return fmt.Sprintf("Socket(%v,%p)", t, soc.soc)
+}
+
+func (soc *Socket) Soc() unsafe.Pointer {
+	return soc.soc
+}
+
+func (soc *Socket) Attachment() interface{} {
+	return soc.attach
+}
+
+func (soc *Socket) SetAttachment(attach interface{}) {
+	soc.attach = attach
 }
 
 /*
@@ -688,7 +714,7 @@ from different goroutines without using something like a mutex.
 
 For a description of socket types, see: http://api.zeromq.org/4-1:zmq-socket#toc3
 */
-func NewSocket(t Type) (soc *Socket, err error) {
+func NewSocket(t SocketType) (soc *Socket, err error) {
 	return defaultCtx.NewSocket(t)
 }
 
@@ -701,7 +727,7 @@ from different goroutines without using something like a mutex.
 
 For a description of socket types, see: http://api.zeromq.org/4-1:zmq-socket#toc3
 */
-func (ctx *Context) NewSocket(t Type) (soc *Socket, err error) {
+func (ctx *Context) NewSocket(t SocketType) (soc *Socket, err error) {
 	soc = &Socket{}
 	if !ctx.opened {
 		return soc, ErrorContextClosed
@@ -845,6 +871,27 @@ func (soc *Socket) RecvBytes(flags Flag) ([]byte, error) {
 	return data, nil
 }
 
+func (soc *Socket) RecvDataPart() (hasMore bool, msg C.zmq_msg_t, data []byte, err error) {
+	return RecvDataPart(soc)
+}
+
+func (soc *Socket) RecvMultipart(limit uint64) (msg FixedMultipartMsg, err error) {
+	return RecvMultipart(soc, limit)
+}
+
+func (soc *Socket) RecvMultipartBytes(limit uint64) (data []byte, err error) {
+	var msg FixedMultipartMsg
+	msg, err = RecvMultipart(soc, limit)
+	if err != nil {
+		return
+	}
+
+	data = msg.NewSingleBufferCopyBytes()
+	msg.Free()
+
+	return
+}
+
 /*
 Send a message part on a socket.
 
@@ -872,6 +919,15 @@ func (soc *Socket) SendBytes(data []byte, flags Flag) (int, error) {
 		return int(size), errget(err)
 	}
 	return int(size), nil
+}
+
+func (soc *Socket) SendBytesWithGroup(data []byte, group string) error {
+	_, err := SendWithGroup(soc, data, group)
+	return err
+}
+
+func (soc *Socket) SendMultipart(datas [][]byte) (err error) {
+	return SendMultipart(soc, datas)
 }
 
 /*

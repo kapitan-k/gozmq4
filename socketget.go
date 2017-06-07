@@ -76,9 +76,9 @@ func (soc *Socket) getUInt64(opt C.int) (uint64, error) {
 // ZMQ_TYPE: Retrieve socket type
 //
 // See: http://api.zeromq.org/4-1:zmq-getsockopt#toc43
-func (soc *Socket) GetType() (Type, error) {
+func (soc *Socket) GetSocketType() (SocketType, error) {
 	v, err := soc.getInt(C.ZMQ_TYPE)
-	return Type(v), err
+	return SocketType(v), err
 }
 
 // ZMQ_RCVMORE: More message data parts to follow
